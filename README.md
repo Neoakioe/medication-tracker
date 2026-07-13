@@ -1,2 +1,2 @@
 # medication-tracker
-복약 과련 
+복약 관련 
