@@ -4,16 +4,22 @@ import { supabase } from "./supabaseClient";
 
 const TIMING_OPTS = ["아침", "점심", "저녁", "취침전", "PRN(필요시)"];
 
-// 자주 쓰이는 약 이름 자동완성용 목록 (직접 입력해도 되고, 목록에 없어도 됨)
+// 자주 쓰이는 약 이름 자동완성용 목록 (처방전 기반 업데이트 완료)
 const MED_CATALOG = [
   { name: "쿠에타핀서방정 400mg", code: "QTPX400" },
   { name: "쿠에타핀정 300mg", code: "QTP300" },
-  { name: "트라조돈염산염정 50mg", code: "TTC50" },
-  { name: "프리가발린캡슐 6mg", code: "PRP6" },
-  { name: "토피라메이트정 100mg", code: "TPM100" },
-  { name: "자니팜정 0.25mg", code: "ZNP0.25" },
-  { name: "오르필 서방정 600mg", code: "ORF600" },
+  { name: "트리티코정 50mg", code: "TTC50" },
+  { name: "팔리스펜서방정 6mg", code: "PRP6" },
+  { name: "토파메이트정 100mg", code: "TPM100" },
+  { name: "자니팜정 0.25mg", code: "ZPM0.25" },
+  { name: "오르필서방정 600mg", code: "ORF600" },
   { name: "피케이엠즈정", code: "PKM" },
+  { name: "루나팜정 1mg", code: "LNP" },
+  { name: "졸레딥캡슐 10mg", code: "ZLD10" },
+  { name: "영진멜라토닌서방정 2mg", code: "YMT" },
+  { name: "마그밀정", code: "MGM" },
+  { name: "아리피졸정 15mg", code: "APZ15" },
+  // 아래는 기존에 있던 약물 목록 (필요시 유지)
   { name: "에스시탈로프람정 10mg", code: "ESC10" },
   { name: "둘록세틴캡슐 30mg", code: "DLX30" },
   { name: "아리피프라졸정 10mg", code: "ARP10" },
@@ -38,14 +44,14 @@ function Field({ label, children }) {
 }
 
 export default function App() {
-  const [patients, setPatients] = useState([]); // array of {id,name,birth,gender,memo,medications:[...]}
+  const [patients, setPatients] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [query, setQuery] = useState("");
   const [showNewPatient, setShowNewPatient] = useState(false);
   const [showNewMed, setShowNewMed] = useState(false);
-  const [editingMed, setEditingMed] = useState(null); // med object being edited, or null
+  const [editingMed, setEditingMed] = useState(null);
   const [error, setError] = useState("");
   const channelRef = useRef(null);
 
@@ -88,8 +94,6 @@ export default function App() {
   }, [fetchAll]);
 
   useEffect(() => {
-    // 목록이 갱신되면서 선택했던 사람이 삭제된 경우에만 선택을 해제해요.
-    // 첫 로딩 시 특정 인원을 자동으로 선택하지는 않아요 (기본 화면 = 사용 안내).
     if (activeId && !patients.find((p) => p.id === activeId)) {
       setActiveId(null);
     }
@@ -427,7 +431,7 @@ function NewMedModal({ onClose, onSubmit, initial, title, submitLabel }) {
               }}
               onFocus={() => setShowSuggestions(true)}
               onBlur={() => setTimeout(() => setShowSuggestions(false), 120)}
-              placeholder="예: 쿠에타핀정 300밀리그람 (입력 중 목록에서 선택 가능)"
+              placeholder="예: 쿠에타핀정 300밀리그람 (입력 중 선택 가능)"
               required
             />
             {showSuggestions && suggestions.length > 0 && (
@@ -668,7 +672,10 @@ function GlobalStyles() {
       .two-col { display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
       .three-col { display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
 
+      /* width: 100% 및 box-sizing 추가 */
       input, select, textarea {
+        width: 100%;
+        box-sizing: border-box;
         border: 1px solid #D6CDBA; border-radius: 7px; padding: 8px 10px; font-size: 13.5px;
         font-family: 'Noto Sans KR', sans-serif; color: #1E2B26; background: #FFFFFF; outline: none;
       }
