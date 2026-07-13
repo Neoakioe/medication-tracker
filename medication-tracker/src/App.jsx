@@ -1,8 +1,32 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import { Plus, Trash2, Pill, RefreshCw, X, Search, Clock } from "lucide-react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { Plus, Trash2, Pencil, Pill, RefreshCw, X, Search, Clock, BookOpen } from "lucide-react";
 import { supabase } from "./supabaseClient";
 
 const TIMING_OPTS = ["아침", "점심", "저녁", "취침전", "PRN(필요시)"];
+
+// 자주 쓰이는 약 이름 자동완성용 목록 (직접 입력해도 되고, 목록에 없어도 됨)
+const MED_CATALOG = [
+  { name: "쿠에타핀서방정 400mg", code: "QTPX400" },
+  { name: "쿠에타핀정 300mg", code: "QTP300" },
+  { name: "트라조돈염산염정 50mg", code: "TTC50" },
+  { name: "프리가발린캡슐 6mg", code: "PRP6" },
+  { name: "토피라메이트정 100mg", code: "TPM100" },
+  { name: "자니팜정 0.25mg", code: "ZNP0.25" },
+  { name: "오르필 서방정 600mg", code: "ORF600" },
+  { name: "피케이엠즈정", code: "PKM" },
+  { name: "에스시탈로프람정 10mg", code: "ESC10" },
+  { name: "둘록세틴캡슐 30mg", code: "DLX30" },
+  { name: "아리피프라졸정 10mg", code: "ARP10" },
+  { name: "부프로피온서방정 150mg", code: "BUP150" },
+  { name: "클로나제팜정 0.5mg", code: "CLZ0.5" },
+  { name: "로라제팜정 1mg", code: "LRZ1" },
+  { name: "졸피뎀타르타르산염정 10mg", code: "ZLP10" },
+  { name: "벤라팍신서방캡슐 75mg", code: "VNF75" },
+  { name: "리스페리돈정 2mg", code: "RSP2" },
+  { name: "발프로산나트륨서방정 500mg", code: "VPA500" },
+  { name: "멜라토닌정 2mg", code: "MEL2" },
+  { name: "프로프라놀롤정 20mg", code: "PRN20" },
+];
 
 function Field({ label, children }) {
   return (
@@ -21,6 +45,7 @@ export default function App() {
   const [query, setQuery] = useState("");
   const [showNewPatient, setShowNewPatient] = useState(false);
   const [showNewMed, setShowNewMed] = useState(false);
+  const [editingMed, setEditingMed] = useState(null); // med object being edited, or null
   const [error, setError] = useState("");
   const channelRef = useRef(null);
 
@@ -63,11 +88,11 @@ export default function App() {
   }, [fetchAll]);
 
   useEffect(() => {
-    if (!activeId && patients.length > 0) setActiveId(patients[0].id);
-    if (activeId && !patients.find((p) => p.id === activeId) && patients.length > 0) {
-      setActiveId(patients[0].id);
+    // 목록이 갱신되면서 선택했던 사람이 삭제된 경우에만 선택을 해제해요.
+    // 첫 로딩 시 특정 인원을 자동으로 선택하지는 않아요 (기본 화면 = 사용 안내).
+    if (activeId && !patients.find((p) => p.id === activeId)) {
+      setActiveId(null);
     }
-    if (patients.length === 0) setActiveId(null);
   }, [patients, activeId]);
 
   const addPatient = async ({ name, birth, gender, memo }) => {
@@ -100,6 +125,16 @@ export default function App() {
       return;
     }
     setShowNewMed(false);
+    fetchAll(true);
+  };
+
+  const editMed = async (medId, updates) => {
+    const { error: err } = await supabase.from("medications").update(updates).eq("id", medId);
+    if (err) {
+      setError("수정에 실패했어요: " + err.message);
+      return;
+    }
+    setEditingMed(null);
     fetchAll(true);
   };
 
@@ -168,12 +203,7 @@ export default function App() {
 
       <main className="main">
         {error && <div className="error-banner">{error}</div>}
-        {!active && !loading && (
-          <div className="placeholder">
-            <Pill size={28} strokeWidth={1.5} />
-            <p>왼쪽에서 인원을 선택하거나 새로 등록해주세요.</p>
-          </div>
-        )}
+        {!active && !loading && <GuideScreen hasPatients={patients.length > 0} />}
 
         {active && (
           <>
@@ -231,11 +261,22 @@ export default function App() {
                           ))}
                         </div>
                       )}
+                      {(m.diagnosis || m.hospital) && (
+                        <div className="med-diagnosis-row">
+                          {m.diagnosis && <span className="diagnosis-chip">{m.diagnosis}</span>}
+                          {m.hospital && <span className="hospital-chip">{m.hospital}</span>}
+                        </div>
+                      )}
                       {m.note && <div className="med-note">{m.note}</div>}
                     </div>
-                    <button className="med-remove" onClick={() => removeMed(m.id)}>
-                      <X size={14} />
-                    </button>
+                    <div className="med-actions">
+                      <button className="med-edit" onClick={() => setEditingMed(m)}>
+                        <Pencil size={14} />
+                      </button>
+                      <button className="med-remove" onClick={() => removeMed(m.id)}>
+                        <X size={14} />
+                      </button>
+                    </div>
                   </div>
                 ))}
             </div>
@@ -248,6 +289,15 @@ export default function App() {
       )}
       {showNewMed && active && (
         <NewMedModal onClose={() => setShowNewMed(false)} onSubmit={(m) => addMed(active.id, m)} />
+      )}
+      {editingMed && (
+        <NewMedModal
+          title="약 정보 수정"
+          submitLabel="저장"
+          initial={editingMed}
+          onClose={() => setEditingMed(null)}
+          onSubmit={(m) => editMed(editingMed.id, m)}
+        />
       )}
 
       <GlobalStyles />
@@ -316,18 +366,33 @@ function NewPatientModal({ onClose, onSubmit }) {
   );
 }
 
-function NewMedModal({ onClose, onSubmit }) {
-  const [name, setName] = useState("");
-  const [code, setCode] = useState("");
-  const [dose, setDose] = useState("");
-  const [freq, setFreq] = useState("");
-  const [days, setDays] = useState("");
-  const [timing, setTiming] = useState([]);
-  const [note, setNote] = useState("");
+function NewMedModal({ onClose, onSubmit, initial, title, submitLabel }) {
+  const [name, setName] = useState(initial?.name || "");
+  const [code, setCode] = useState(initial?.code || "");
+  const [dose, setDose] = useState(initial?.dose || "");
+  const [freq, setFreq] = useState(initial?.freq || "");
+  const [days, setDays] = useState(initial?.days || "");
+  const [timing, setTiming] = useState(initial?.timing || []);
+  const [diagnosis, setDiagnosis] = useState(initial?.diagnosis || "");
+  const [hospital, setHospital] = useState(initial?.hospital || "");
+  const [note, setNote] = useState(initial?.note || "");
   const [saving, setSaving] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+
+  const suggestions = useMemo(() => {
+    const q = name.trim().toLowerCase();
+    if (!q) return [];
+    return MED_CATALOG.filter((m) => m.name.toLowerCase().includes(q)).slice(0, 6);
+  }, [name]);
 
   const toggleTiming = (t) => {
     setTiming((cur) => (cur.includes(t) ? cur.filter((x) => x !== t) : [...cur, t]));
+  };
+
+  const pickSuggestion = (m) => {
+    setName(m.name);
+    setCode(m.code);
+    setShowSuggestions(false);
   };
 
   const submit = async (e) => {
@@ -341,22 +406,45 @@ function NewMedModal({ onClose, onSubmit }) {
       freq: freq.trim(),
       days: days.trim(),
       timing,
+      diagnosis: diagnosis.trim(),
+      hospital: hospital.trim(),
       note: note.trim(),
     });
     setSaving(false);
   };
 
   return (
-    <ModalShell title="약 추가" onClose={onClose}>
+    <ModalShell title={title || "약 추가"} onClose={onClose}>
       <form onSubmit={submit} className="modal-form">
         <Field label="약품명">
-          <input
-            autoFocus
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="예: 쿠에타핀정 300밀리그람"
-            required
-          />
+          <div className="autocomplete-wrap">
+            <input
+              autoFocus
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                setShowSuggestions(true);
+              }}
+              onFocus={() => setShowSuggestions(true)}
+              onBlur={() => setTimeout(() => setShowSuggestions(false), 120)}
+              placeholder="예: 쿠에타핀정 300밀리그람 (입력 중 목록에서 선택 가능)"
+              required
+            />
+            {showSuggestions && suggestions.length > 0 && (
+              <div className="suggestion-list">
+                {suggestions.map((m) => (
+                  <div
+                    key={m.name}
+                    className="suggestion-item"
+                    onMouseDown={() => pickSuggestion(m)}
+                  >
+                    <span>{m.name}</span>
+                    <span className="suggestion-code">{m.code}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </Field>
         <Field label="코드 (선택)">
           <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="예: QTP300" />
@@ -386,14 +474,56 @@ function NewMedModal({ onClose, onSubmit }) {
             ))}
           </div>
         </Field>
+        <div className="two-col">
+          <Field label="병명 / 진단 (선택)">
+            <input value={diagnosis} onChange={(e) => setDiagnosis(e.target.value)} placeholder="예: 불면증" />
+          </Field>
+          <Field label="처방 병원 (선택)">
+            <input value={hospital} onChange={(e) => setHospital(e.target.value)} placeholder="예: OO정신건강의학과" />
+          </Field>
+        </div>
         <Field label="메모 (선택)">
           <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="예: 식후 30분" />
         </Field>
         <button className="submit-btn" type="submit" disabled={saving}>
-          {saving ? "저장 중…" : "추가"}
+          {saving ? "저장 중…" : submitLabel || "추가"}
         </button>
       </form>
     </ModalShell>
+  );
+}
+
+function GuideScreen({ hasPatients }) {
+  return (
+    <div className="guide-screen">
+      <div className="guide-icon">
+        <BookOpen size={26} strokeWidth={1.5} />
+      </div>
+      <h1>복약 대장 사용 안내</h1>
+      <p className="guide-lead">
+        왼쪽 목록에서 사람을 선택하면 그 사람의 복용약이 보여요. 아래 순서대로 시작해보세요.
+      </p>
+      <ol className="guide-steps">
+        <li>
+          <strong>새 인원 등록</strong> — 왼쪽 상단 버튼으로 이름, 생년월일, 성별을 등록해요.
+        </li>
+        <li>
+          <strong>약 추가</strong> — 인원을 선택한 뒤 "약 추가"로 약품명, 용량, 복용 시점, 병명/처방
+          병원까지 기록해요.
+        </li>
+        <li>
+          <strong>수정 · 삭제</strong> — 각 약 카드의 연필 아이콘으로 정보를 고치고, X 아이콘으로
+          삭제해요.
+        </li>
+        <li>
+          <strong>실시간 공유</strong> — 이 화면 링크를 아는 사람은 누구나 같은 정보를 보고 함께
+          관리할 수 있어요.
+        </li>
+      </ol>
+      {!hasPatients && (
+        <div className="guide-hint">아직 등록된 인원이 없어요. 왼쪽에서 첫 인원을 등록해보세요.</div>
+      )}
+    </div>
   );
 }
 
@@ -462,6 +592,33 @@ function GlobalStyles() {
       .main { flex:1; padding: 34px 44px; overflow-y:auto; }
       .error-banner { background: #FBE7E4; color: #9B3B2E; border: 1px solid #F0BDB4; padding: 10px 14px; border-radius: 8px; font-size: 13px; margin-bottom: 18px; }
       .placeholder { height: 60vh; display:flex; flex-direction:column; align-items:center; justify-content:center; gap: 12px; color: #6E8378; }
+
+      .guide-screen { max-width: 560px; padding-top: 12px; }
+      .guide-icon { width: 46px; height: 46px; border-radius: 12px; background: #E4EEE3; color: #2A4A40; display:flex; align-items:center; justify-content:center; margin-bottom: 16px; }
+      .guide-screen h1 { font-family: 'Noto Serif KR', serif; font-size: 24px; color: #17332C; margin: 0 0 10px; }
+      .guide-lead { font-size: 13.5px; color: #55685F; line-height: 1.6; margin-bottom: 18px; }
+      .guide-steps { display:flex; flex-direction:column; gap: 12px; padding-left: 20px; margin: 0; }
+      .guide-steps li { font-size: 13.5px; color: #3D4F47; line-height: 1.6; }
+      .guide-steps strong { color: #17332C; }
+      .guide-hint { margin-top: 22px; font-size: 13px; color: #8A6A3B; background: #FBF0DC; padding: 10px 14px; border-radius: 8px; display:inline-block; }
+
+      .autocomplete-wrap { position: relative; }
+      .suggestion-list {
+        position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 10;
+        background: #FFFFFF; border: 1px solid #D6CDBA; border-radius: 8px;
+        max-height: 200px; overflow-y: auto; box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+      }
+      .suggestion-item { display:flex; justify-content:space-between; gap:8px; padding: 8px 12px; font-size: 13px; cursor:pointer; }
+      .suggestion-item:hover { background: #F3EEDF; }
+      .suggestion-code { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8A6A3B; }
+
+      .med-diagnosis-row { display:flex; gap:6px; flex-wrap:wrap; margin-top: 8px; }
+      .diagnosis-chip { font-size: 11px; background: #EAE2F5; color:#5B3F8C; padding: 2px 8px; border-radius: 20px; }
+      .hospital-chip { font-size: 11px; background: #DDEBF3; color:#2C5E7A; padding: 2px 8px; border-radius: 20px; }
+
+      .med-actions { display:flex; flex-direction:column; gap: 6px; flex-shrink:0; }
+      .med-edit { background: transparent; border:none; color:#B7C4BC; cursor:pointer; padding: 2px; border-radius: 6px; }
+      .med-edit:hover { background:#E4EEE3; color:#2A4A40; }
 
       .detail-header { display:flex; justify-content:space-between; align-items:flex-start; gap: 20px; margin-bottom: 30px; }
       .detail-eyebrow { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: #8A6A3B; }
