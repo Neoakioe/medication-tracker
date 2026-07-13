@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Plus, Trash2, Pencil, Pill, RefreshCw, X, Search, Clock, BookOpen } from "lucide-react";
+import { Plus, Trash2, Pencil, Pill, RefreshCw, X, Search, Clock, BookOpen, ExternalLink } from "lucide-react";
 import { supabase } from "./supabaseClient";
 
 const TIMING_OPTS = ["아침", "점심", "저녁", "취침전", "PRN(필요시)"];
@@ -48,6 +48,7 @@ export default function App() {
   const [syncing, setSyncing] = useState(false);
   const [query, setQuery] = useState("");
   const [showNewPatient, setShowNewPatient] = useState(false);
+  const [showEditPatient, setShowEditPatient] = useState(false);
   const [showNewMed, setShowNewMed] = useState(false);
   const [editingMed, setEditingMed] = useState(null);
   const [error, setError] = useState("");
@@ -111,7 +112,18 @@ export default function App() {
     fetchAll(true);
   };
 
+  const editPatient = async (id, updates) => {
+    const { error: err } = await supabase.from("patients").update(updates).eq("id", id);
+    if (err) {
+      setError("입주민 정보 수정에 실패했어요: " + err.message);
+      return;
+    }
+    setShowEditPatient(false);
+    fetchAll(true);
+  };
+
   const removePatient = async (id) => {
+    if(!window.confirm("정말 이 입주민과 모든 복약 기록을 삭제하시겠습니까?")) return;
     const { error: err } = await supabase.from("patients").delete().eq("id", id);
     if (err) setError("삭제에 실패했어요: " + err.message);
     fetchAll(true);
@@ -141,41 +153,53 @@ export default function App() {
   };
 
   const removeMed = async (medId) => {
+    if(!window.confirm("이 약을 삭제하시겠습니까?")) return;
     const { error: err } = await supabase.from("medications").delete().eq("id", medId);
     if (err) setError("삭제에 실패했어요: " + err.message);
     fetchAll(true);
   };
 
   const active = patients.find((p) => p.id === activeId) || null;
-  const filtered = patients.filter((p) =>
-    query.trim() ? p.name.toLowerCase().includes(query.toLowerCase()) : true
-  );
+  
+  // 이름 또는 약물 이름으로 통합 검색
+  const filtered = patients.filter((p) => {
+    if (!query.trim()) return true;
+    const q = query.trim().toLowerCase();
+    const nameMatch = p.name.toLowerCase().includes(q);
+    const medMatch = p.medications?.some((m) => m.name.toLowerCase().includes(q));
+    return nameMatch || medMatch;
+  });
 
   return (
     <div className="app">
       <aside className="sidebar">
-        <div className="brand">
+        {/* 로고 클릭 시 초기화면으로 이동 */}
+        <div className="brand" onClick={() => setActiveId(null)} title="초기 화면으로">
           <div className="brand-mark">Rx</div>
           <div>
             <div className="brand-title">복약 대장</div>
-            <div className="brand-sub">사람별 복용약 기록</div>
+            <div className="brand-sub">입주민별 복용약 기록</div>
           </div>
         </div>
 
         <div className="search-row">
           <Search size={14} strokeWidth={2.5} />
-          <input placeholder="이름으로 찾기" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input 
+            placeholder="이름 또는 약품명으로 검색" 
+            value={query} 
+            onChange={(e) => setQuery(e.target.value)} 
+          />
         </div>
 
         <button className="add-patient-btn" onClick={() => setShowNewPatient(true)}>
-          <Plus size={16} /> 새 인원 등록
+          <Plus size={16} /> 새 입주민 등록
         </button>
 
         <div className="patient-list">
           {loading && <div className="empty-note">불러오는 중…</div>}
           {!loading && filtered.length === 0 && (
             <div className="empty-note">
-              {patients.length === 0 ? "아직 등록된 인원이 없어요." : "일치하는 이름이 없어요."}
+              {patients.length === 0 ? "아직 등록된 입주민이 없어요." : "일치하는 결과가 없어요."}
             </div>
           )}
           {filtered.map((p) => (
@@ -211,7 +235,7 @@ export default function App() {
           <>
             <header className="detail-header">
               <div>
-                <div className="detail-eyebrow">환자 정보</div>
+                <div className="detail-eyebrow">입주민 정보</div>
                 <h1>{active.name}</h1>
                 <div className="detail-tags">
                   {active.gender && <span className="tag">{active.gender}</span>}
@@ -220,9 +244,14 @@ export default function App() {
                 </div>
                 {active.memo && <p className="memo">{active.memo}</p>}
               </div>
-              <button className="danger-btn" onClick={() => removePatient(active.id)}>
-                <Trash2 size={14} /> 인원 삭제
-              </button>
+              <div className="header-actions">
+                <button className="edit-btn" onClick={() => setShowEditPatient(true)}>
+                  <Pencil size={14} /> 정보 수정
+                </button>
+                <button className="danger-btn" onClick={() => removePatient(active.id)}>
+                  <Trash2 size={14} /> 삭제
+                </button>
+              </div>
             </header>
 
             <div className="med-section-head">
@@ -247,6 +276,15 @@ export default function App() {
                       <div className="med-name-row">
                         <span className="med-name">{m.name}</span>
                         {m.code && <span className="med-code">{m.code}</span>}
+                        <a
+                          href={`https://search.naver.com/search.naver?query=${encodeURIComponent(m.name + ' 효능 부작용')}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="med-info-link"
+                          title="의약품 정보 검색 (새 창)"
+                        >
+                          <ExternalLink size={12} /> 약학정보
+                        </a>
                       </div>
                       <div className="med-dose-row">
                         {m.dose && <span>1회 {m.dose}</span>}
@@ -272,10 +310,10 @@ export default function App() {
                       {m.note && <div className="med-note">{m.note}</div>}
                     </div>
                     <div className="med-actions">
-                      <button className="med-edit" onClick={() => setEditingMed(m)}>
+                      <button className="med-edit" onClick={() => setEditingMed(m)} title="수정">
                         <Pencil size={14} />
                       </button>
-                      <button className="med-remove" onClick={() => removeMed(m.id)}>
+                      <button className="med-remove" onClick={() => removeMed(m.id)} title="삭제">
                         <X size={14} />
                       </button>
                     </div>
@@ -286,9 +324,22 @@ export default function App() {
         )}
       </main>
 
+      {/* 새 입주민 추가 모달 */}
       {showNewPatient && (
         <NewPatientModal onClose={() => setShowNewPatient(false)} onSubmit={addPatient} />
       )}
+      
+      {/* 입주민 정보 수정 모달 */}
+      {showEditPatient && active && (
+        <NewPatientModal 
+          title="입주민 정보 수정"
+          submitLabel="저장"
+          initial={active}
+          onClose={() => setShowEditPatient(false)} 
+          onSubmit={(updates) => editPatient(active.id, updates)} 
+        />
+      )}
+
       {showNewMed && active && (
         <NewMedModal onClose={() => setShowNewMed(false)} onSubmit={(m) => addMed(active.id, m)} />
       )}
@@ -323,11 +374,11 @@ function ModalShell({ title, onClose, children }) {
   );
 }
 
-function NewPatientModal({ onClose, onSubmit }) {
-  const [name, setName] = useState("");
-  const [birth, setBirth] = useState("");
-  const [gender, setGender] = useState("");
-  const [memo, setMemo] = useState("");
+function NewPatientModal({ onClose, onSubmit, initial, title, submitLabel }) {
+  const [name, setName] = useState(initial?.name || "");
+  const [birth, setBirth] = useState(initial?.birth || "");
+  const [gender, setGender] = useState(initial?.gender || "");
+  const [memo, setMemo] = useState(initial?.memo || "");
   const [saving, setSaving] = useState(false);
 
   const submit = async (e) => {
@@ -339,7 +390,7 @@ function NewPatientModal({ onClose, onSubmit }) {
   };
 
   return (
-    <ModalShell title="새 인원 등록" onClose={onClose}>
+    <ModalShell title={title || "새 입주민 등록"} onClose={onClose}>
       <form onSubmit={submit} className="modal-form">
         <Field label="이름 / 별칭">
           <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="예: 최수원" required />
@@ -357,11 +408,11 @@ function NewPatientModal({ onClose, onSubmit }) {
           </Field>
         </div>
         <Field label="메모 (선택)">
-          <textarea value={memo} onChange={(e) => setMemo(e.target.value)} rows={2} placeholder="알레르기, 특이사항 등" />
+          <textarea value={memo} onChange={(e) => setMemo(e.target.value)} rows={2} placeholder="특이사항 등" />
         </Field>
         <div className="hint-note">주민등록번호 전체 등 민감정보는 입력하지 않는 걸 권장해요.</div>
         <button className="submit-btn" type="submit" disabled={saving}>
-          {saving ? "저장 중…" : "등록"}
+          {saving ? "저장 중…" : (submitLabel || "등록")}
         </button>
       </form>
     </ModalShell>
@@ -503,24 +554,24 @@ function GuideScreen({ hasPatients }) {
       </div>
       <h1>복약 대장 사용 안내</h1>
       <p className="guide-lead">
-        왼쪽 목록에서 사람을 선택하면 그 사람의 복용약이 보여요. 아래 순서대로 시작해보세요.
+        왼쪽 목록에서 입주민을 선택하면 그 사람의 복용약이 보여요. 아래 순서대로 시작해보세요.
       </p>
       <ol className="guide-steps">
         <li>
-          <strong>새 인원 등록</strong> — 왼쪽 상단 버튼으로 이름, 생년월일, 성별을 등록해요.
+          <strong>새 입주민 등록</strong> — 왼쪽 상단 버튼으로 이름, 생년월일, 성별을 등록해요.
         </li>
         <li>
-          <strong>약 추가</strong> — 인원을 선택한 뒤 "약 추가"로 약품명, 용량, 복용 시점, 병명/처방 병원까지 기록해요.
+          <strong>약 추가</strong> — 입주민을 선택한 뒤 "약 추가"로 약품명, 용량, 병명 등을 기록해요.
         </li>
         <li>
-          <strong>수정 · 삭제</strong> — 각 약 카드의 연필 아이콘으로 정보를 고치고, X 아이콘으로 삭제해요.
+          <strong>통합 검색</strong> — 좌측 검색창에 약 이름을 검색하면, 해당 약을 먹고 있는 입주민도 쉽게 찾을 수 있어요.
         </li>
         <li>
-          <strong>실시간 공유</strong> — 이 화면 링크를 아는 사람은 누구나 같은 정보를 보고 함께 관리할 수 있어요.
+          <strong>약학 정보</strong> — 추가된 약물 이름 옆의 [약학정보] 버튼을 누르면 약물 효능을 바로 검색할 수 있어요.
         </li>
       </ol>
       {!hasPatients && (
-        <div className="guide-hint">아직 등록된 인원이 없어요. 왼쪽에서 첫 인원을 등록해보세요.</div>
+        <div className="guide-hint">아직 등록된 입주민이 없어요. 왼쪽에서 첫 입주민을 등록해보세요.</div>
       )}
     </div>
   );
@@ -543,7 +594,8 @@ function GlobalStyles() {
         width: 300px; flex-shrink: 0; background: #17332C; color: #E9F1EC;
         display: flex; flex-direction: column; padding: 22px 18px; gap: 16px;
       }
-      .brand { display:flex; align-items:center; gap:12px; }
+      .brand { display:flex; align-items:center; gap:12px; cursor: pointer; transition: opacity 0.2s; }
+      .brand:hover { opacity: 0.85; }
       .brand-mark {
         width: 40px; height: 40px; border-radius: 10px; background: #C98A3F; color: #17332C;
         display:flex; align-items:center; justify-content:center;
@@ -627,6 +679,14 @@ function GlobalStyles() {
       .tag.muted { background: #EFE6D8; color: #8A6A3B; }
       .memo { margin-top: 10px; font-size: 13px; color: #55685F; max-width: 480px; }
 
+      .header-actions { display: flex; gap: 8px; align-items: center; }
+      
+      .edit-btn {
+        display:flex; align-items:center; gap:6px; background: transparent; border: 1px solid #C7D6CD; color: #55685F;
+        padding: 8px 12px; border-radius: 8px; font-size: 12.5px; cursor:pointer; white-space: nowrap;
+      }
+      .edit-btn:hover { background: #E4EEE3; color: #2A4A40; border-color: #A9C2B6; }
+
       .danger-btn {
         display:flex; align-items:center; gap:6px; background: transparent; border: 1px solid #E0B8AF; color: #9B3B2E;
         padding: 8px 12px; border-radius: 8px; font-size: 12.5px; cursor:pointer; white-space: nowrap;
@@ -647,10 +707,18 @@ function GlobalStyles() {
       .med-card { display:flex; align-items:flex-start; gap: 14px; background: #FFFFFF; border: 1px solid #DDE7DA; border-radius: 10px; padding: 14px 16px; position: relative; }
       .med-index { font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #C98A3F; font-weight: 600; padding-top: 2px; width: 22px; flex-shrink:0; }
       .med-body { flex:1; }
-      .med-name-row { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
+      
+      .med-name-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
       .med-name { font-size: 15px; font-weight: 600; color: #17332C; }
       .med-code { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8A6A3B; background:#F3E9D6; padding:1px 6px; border-radius:4px; }
-      .med-dose-row { display:flex; gap:6px; font-size: 12.5px; color: #55685F; margin-top: 4px; flex-wrap: wrap; }
+      .med-info-link {
+        display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: #2C5E7A; 
+        background: #DDEBF3; padding: 3px 8px; border-radius: 12px; text-decoration: none; margin-left: 2px;
+        transition: background 0.2s;
+      }
+      .med-info-link:hover { background: #C4DEED; }
+
+      .med-dose-row { display:flex; gap:6px; font-size: 12.5px; color: #55685F; margin-top: 6px; flex-wrap: wrap; }
       .timing-row { display:flex; align-items:center; gap:6px; margin-top:8px; color:#7C9186; }
       .timing-chip { font-size: 11px; background: #EEF3EC; color:#3D554B; padding: 2px 8px; border-radius: 20px; }
       .med-note { font-size: 12px; color: #93867A; margin-top: 6px; font-style: italic; }
@@ -692,10 +760,10 @@ function GlobalStyles() {
         .app { flex-direction: column; }
         .sidebar { width: 100%; }
         .main { padding: 22px; }
+        .detail-header { flex-direction: column; gap: 16px; }
         .three-col { grid-template-columns: 1fr; }
         .two-col { grid-template-columns: 1fr; }
       }
     `}</style>
   );
 }
-
